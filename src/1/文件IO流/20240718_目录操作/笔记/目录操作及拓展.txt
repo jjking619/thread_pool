@@ -1,0 +1,260 @@
+拓展知识： 
+    1.md5sum：可以验证两个文件是否完全一致 
+        在网络传输、设备转存、复制文件等，可能会出现传输前后数据不一致的情况，在linux下可以通过md5sum验证两个文件，这个指令根据文件
+        的内容生成一个32位16进制(md5值)，如果两个文件的md5值完全一致，意味着内容完全一样。
+        指令如下： 
+            md5sum 1.bmp 2.bmp  
+
+    2.获取进程的当前工作目录
+        a.getwd：get working directory   
+           NAME
+       getwd, - get current working directory
+
+        SYNOPSIS
+            #include <unistd.h>
+        char *getwd(char *buf);
+            @buf：用来保存进程运行的工作路径，"字符串"-->绝对路径 
+    返回值： 
+        成功的话返回当前工作目录字符串的首地址 
+        失败，返回NULL，同时errno被设置 
+    例子： 
+        int main()
+        {
+            char buf[64];
+            char *p = getwd(buf);
+            if(p == NULL)
+            {
+                perror("getwd error");
+                return -1;
+            }
+            printf("%s\n",buf);
+            printf("%s\n",p);
+
+            return 0;
+        }
+    但是getwd有一个BUG，在编译的时候提示你：
+        getwd.c:(.text+0x1f): 警告： the `getwd' function is dangerous and should not be used.
+        这是getwd会有越界的风险，如果你给的buf的数组不够大(要存储的工作目录的长度大于数组的长度)，这个时候就会造成内存的非法访问
+
+    b.  
+      char *getcwd(char *buf, size_t size);
+            @buf:指向的空间用来保存工作的路径
+            @size：指定buf可用空间的长度。如果当前的工作路径的长度>size-1 这个函数就会报错
+      返回值： 
+            成功返回目录的字符串的首地址 
+            失败，返回NULL，同时errno被设置
+        例子： 
+        int main()
+        {
+            char buf[64];
+            char *p = getcwd(buf,64);
+            if(p == NULL)
+            {
+                perror("getwd error");
+                return -1;
+            }
+            printf("%s\n",buf);
+            printf("%s\n",p);
+
+            return 0;
+        }
+    只要获取的路径长度大于数组的长度-1，就会报错：
+        getcwd error: Numerical result out of range
+
+    c. 
+      char *get_current_dir_name(void)
+        也是用来获取工作路径，但是，这个函数在内部自动malloc最够长的空间用来保存路径，并且返回首地址
+        所以，为了防止内存泄漏，在使用完之后，要free掉这个空间  
+        因为这个函数是GNU拓展函数，在使用的时候需要添加宏  
+        #define _GNU_SOURCE 
+        放在所有头文件的最前面  
+    比如：
+        #define _GNU_SOURCE
+        #include <stdio.h>
+        #include <unistd.h>
+        #include <stdlib.h>
+
+        int main()
+        {
+            char *p = get_current_dir_name();
+            if(p == NULL)
+            {
+                perror("getwd error");
+                return -1;
+            }
+            printf("%s\n",p);
+            free(p);
+
+            return 0;
+        }
+3.改变进程的当前工作路径 
+    chdir 
+    NAME
+       chdir - change working directory
+
+    SYNOPSIS
+        #include <unistd.h>
+
+    int chdir(const char *path);
+        @path:要切换到的工作目录的路径 
+            比如："/home/china"  
+
+4.文件截短 
+    truncate 
+    NAME
+       truncate, ftruncate - truncate a file to a specified length
+        把文件截止到指定的一个长度
+    SYNOPSIS
+        #include <unistd.h>
+        #include <sys/types.h>
+
+        int truncate(const char *path, off_t length);、
+            @path：你要截短的那个文件名
+            @length：截短后文件内容的长度 
+
+        int ftruncate(int fd, off_t length);
+    返回值： 
+        成功返回0，失败返回-1，同时errno被设置 
+    例子： 
+        int main(int argc,char *argv[])//./main 1.txt 10
+        {
+            //atoi函数可以把数字字符串转换成数字 "123"-->123
+            int ret = truncate(argv[1],atoi(argv[2]));
+            if(ret == -1)
+            {
+                perror("truncate failed");
+                return -1;
+            }
+
+        }
+    一般分成两种情况： 
+        a. length < 原文件内容的长度，原文件后面的内容，还能不能看的到？
+            看不到   内容已经被清掉
+
+        b.length > 原文件内容的长度,会是什么内容？ 
+            原文件大小会变大，后面增加了多个'\0' 
+
+5.删除一个文件 
+    unlink 删除一个文件  
+    rmdir  删除一个空目录 
+    remove 删除一个普通文件或空目录  
+    a. unlink  
+        NAME
+       unlink - delete a name and possibly the file it refers to
+
+SYNOPSIS
+       #include <unistd.h>
+
+       int unlink(const char *pathname);
+            @pathname:要删除的文件的路径文件名 
+    返回值： 
+        成功返回0，失败返回-1，同时errno被设置 
+    
+    b. rmdir 
+    NAME
+       rmdir - delete a directory
+
+    SYNOPSIS
+        #include <unistd.h>
+
+        int rmdir(const char *pathname);
+            @pathname:要删除的那个目录的路径文件名  -->只能删除空目录  
+
+    c.remove 
+        NAME
+       remove - remove a file or directory
+
+        SYNOPSIS
+            #include <stdio.h>
+
+            int remove(const char *pathname);
+
+6.获取文件属性  stat  
+      NAME
+       stat, fstat, lstat, fstatat - get file status
+        用来获取文件的属性
+    SYNOPSIS
+        #include <sys/types.h>
+        #include <sys/stat.h>
+        #include <unistd.h>
+
+        int stat(const char *pathname, struct stat *statbuf);
+        int fstat(int fd, struct stat *statbuf);
+        int lstat(const char *pathname, struct stat *statbuf);
+    在上述的参数列表中有一个结构体: struct stat 
+    在linux下，这个结构体用来保存一个文件的所有的属性或者状态 
+       struct stat {
+               dev_t     st_dev;         /* ID of device containing file */
+                   //st_dev用来表示容纳这个文件的那个设备的设备号
+                   //比如该文件可能存储在某个硬盘或者U盘上，这个硬盘或者U盘就会有一个设备号                   
+               ino_t     st_ino;         /* Inode number */
+                    //该文件的inode编号
+               mode_t    st_mode;        /* File type and mode */
+                    //st_mode 包含文件的类型和权限
+                    //先定义一个 struct stat st ;
+                    //st.st_mode来解析文件的类型和权限
+                    //S_ISREG(st.st_mode) 为真表示这个是普通文件       -
+                    //S_ISDIR(st.st_mode) 为真表示这个是目录文件       d
+                    //S_ISCHR(st.st_mode) 为真表示这个是字符设备文件   c
+                    //S_ISBLK(st.st_mode) 为真表示这个是块设备文件     b
+                    //S_ISFIFO(st.st_mode) 为真表示这个是管道文件      p
+                    //S_ISLNK(st.st_mode) 为真表示这个是链接文件       l
+                    //S_ISSOCK(st.st_mode) 为真表示这个是套接字文件    s
+                    //st_mode还包含了文件的权限位，可以用如下的代码进行解析：
+                    //if(st.st_mode & S_IRWXU)
+                     {
+                        代表这个文件有用户可读的权限   
+                     }
+                     ......
+
+               nlink_t   st_nlink;       /* Number of hard links */
+                    //该文件的硬链接数目
+               uid_t     st_uid;         /* User ID of owner */
+                    //文件拥有者ID
+               gid_t     st_gid;         /* Group ID of owner */
+                    //文件拥有者的组ID
+               dev_t     st_rdev;        /* Device ID (if special file) */
+                    //设备号(假设该文件就是设备)
+               off_t     st_size;        /* Total size, in bytes */
+                    //对于不同的对象，这个st_size含义不一样
+                    //对于普通文件，这个就是文件的大小
+                    //对于目录文件是?后面再讲 
+                    //对于是软链接文件  原文件(stat) 
+
+               blksize_t st_blksize;     /* Block size for filesystem I/O */
+                    //块大小(512个字节为一块)
+               blkcnt_t  st_blocks;      /* Number of 512B blocks allocated */
+                    //该文件占多少块
+
+               /* Since Linux 2.6, the kernel supports nanosecond
+                  precision for the following timestamp fields.
+                  For the details before Linux 2.6, see NOTES. */
+
+               struct timespec st_atim;  /* Time of last access */
+                    //最后访问该文件的时间
+               struct timespec st_mtim;  /* Time of last modification */
+                //最后修改该文件的时间
+               struct timespec st_ctim;  /* Time of last status change */
+                    //最后修改"文件属性"的时间
+                #define st_atime st_atim.tv_sec      /* Backward compatibility */
+                #define st_mtime st_mtim.tv_sec
+                #define st_ctime st_ctim.tv_sec
+           };
+    a.stat 
+        stat这个函数用来获取指定文件的属性，获取的属性用struct stat st保存 
+    b.fstat 
+        功能跟stat一样，只不过需要文件描述符，也就是说得先open 
+    c.lstat 
+        功能跟stat一样，当你这个文件是软链接文件的时候，lstat获取的是软链接文件的属性，但是stat获取的是原文件的属性
+练习： 
+    用stat函数去判断文件的类型(普通文件、目录文件、链接文件)，如果是普通文件，求出这个文件的大小  
+        
+
+
+
+
+    
+    
+     
+          
+

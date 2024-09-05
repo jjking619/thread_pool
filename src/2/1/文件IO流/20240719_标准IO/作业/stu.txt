@@ -1,0 +1,5 @@
+1 jikaian 100
+2 zhangsan 80
+3 lisi 90
+4 wanwu 99
+5 luoxiang 100

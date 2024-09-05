@@ -1,0 +1,224 @@
+一.引入  
+    学校大部分学生都接触过51单片机，一般都需要去点LED灯，采用直接操控单片机内的寄存器，这种方式称之为"裸奔"，就是用户直接操作了硬件
+    现在我们使用电脑去播放一首歌，会发现我们并没有操作什么寄存器，因为我们的电脑是带操作系统(OS)，意思就是用户与硬件层之间还有一层
+    这一层就是操作系统
+    很明显,"带OS"比"裸奔"好。因为随着科技的发展，芯片的种类和数量越来越多，这些寄存器的种类越来越多，所以地址和名称不可能记得住。
+    怎么办？需要一个管家(OS)帮助我们去管理所有的硬件资源，只需要用户传达指令给管家，管家就会完成这些操作，反馈结果给用户   
+        那么我们怎么下达命令给OS？
+        在linux下，linux为了简化我们的工作，把所有对寄存器的操作封装成了函数(API接口)，我们并不需要知道函数里面是怎么实现的，只需要
+    知道函数的功能是什么，参数怎么填，返回值是什么。 
+        那么今天要讲的是关于如何让操作文件相关的API接口函数。
+
+二.linux是什么？
+    linux是一个开源的操作系统 
+    设计哲学: 
+        Everything is a file,in Linux!!
+        在linux下，所有的一切都是一个文件(包括设备文件)
+        在操作系统中最强大的软件就是文件系统，文件系统的作用就是帮助我们管理计算机中的文件，使其有序。所以文件系统的完整定义：
+            操作系统中负责管理和存储文件信息的软件 
+        文件系统的种类非常多，但是不管是哪一种文件系统，将文件分成两个部分存储：
+        1.文件属性 
+            文件的属性比如有文件的创建时间、文件最后一次的修改时间等等时间戳方面信息，还有文件的大小以及文件的拥有者.........
+            那么这些文件的属性我们能用什么东西存储？ 
+            因为各种文件属性的类型都不一样，所以需要用结构体去存储一个文件的属性。这个结构体的名称 struct inode，称之为inode结点
+
+        2.文件内容 
+            文件中真正存储的内容 
+    把文件操作的过程进行一下总结： 
+        硬件：inode结点 --> 文件内容 
+        linux内核中： 
+            struct inode{}
+            用来描述一个文件的物理inode信息的，系统识别到有一个文件存在，就创建一个结构体
+            struct file{}
+            用来描述一个已经打开的文件。
+            每一个打开的文件都会对应一个struct file。一个文件可以被不同的进程打开 
+        所以文件的操作为：
+            0 --> struct file * --->struct file --> struct inode --> inode结点 --> 文件内容  
+            .....
+        所以我们实际上去操作文件其实就是通过操作1,2,3......这些"文件描述符"来做到的。
+        这样的"文件描述符"是怎么得到的？
+        是通过调用open函数得到的，这个文件描述符本质是就是进程文件表项的下标，用来描述一个已经打开的文件  
+
+三.系统IO  
+    在linux操作系统文件操作的API 
+    文件操作一般分成三个步骤：
+    step1:open  
+    step2:read、write、lseek 
+    step3:close 
+    3.1 打开文件 open   
+        NAME
+        open - open and possibly create a file
+            打开或者创建一个文件   
+        SYNOPSIS
+            #include <sys/types.h>
+            #include <sys/stat.h>
+            #include <fcntl.h>
+
+            int open(const char *pathname, int flags);
+            int open(const char *pathname, int flags, mode_t mode);
+                @pathname：要打开或者创建的路径文件名 
+                    相对路径：不以根目录开头的路径 "./music/1.mp3"
+                    绝对路径: 以根目录开头的路径  "/mnt/1.txt"  
+                @flags: 打开这个文件的标志。 
+                    O_RDONLY ：read only    只读
+                    O_WRONLY : write only   只写
+                    O_RDWR   : read and write  可读可写 
+                以上的三个选项必须选择其中一个而且也只能选择一个   
+                    O_APPEND ：追加 ，打开文件，文件的光标定位在末尾   
+                    O_CREAT  ：创建 ，如果文件不存在，则会先创建再打开 
+                    O_EXCL   : 这个标志位一般与O_CREAT配合使用，用来测试文件是否存在，如果第二个参数有O_CREAT|O_EXCL,
+                                如果文件存在，则会open失败  
+                    O_TRUNC  ：截短标志，假如文件存在，并且是一个普通文件，而且打开的方式 O_WRONLY或者O_RDWR，则会清空文件
+                                原本的内容。如果是O_RDONLY|O_TRUNC，O_TRUNC就不会起作用  
+                    O_NONBLOCK : 非阻塞方式打开文件 
+                        非阻塞 ： "不等待" 
+                            如果文件没有内容，read不会阻塞，直接返回一个错误
+                            如果文件没有空间, write不会阻塞，直接返回一个错误 
+                        阻塞 :"等待" 
+                            如果文件没有内容，read就会阻塞(直到文件内有内容)
+                            如果文件没有空间, write就会阻塞(直到文件内有空间)   
+                以上的选项可以位或多个 |   
+            @mode：当创建文件的时候，也就是说第二个参数有O_CREAT的时候，才需要第三个参数，第三个参数表示新创建的文件的权限 
+                    新文件的权限需要怎么指定，有两种指定方式：
+                    a.宏  
+                        S_IRWXU  00700 user (file owner) has read, write, and execute permission
+
+                        S_IRUSR  00400 user has read permission
+
+                        S_IWUSR  00200 user has write permission
+
+                        S_IXUSR  00100 user has execute permission
+
+                        S_IRWXG  00070 group has read, write, and execute permission
+
+                        S_IRGRP  00040 group has read permission
+
+                        S_IWGRP  00020 group has write permission
+
+                        S_IXGRP  00010 group has execute permission
+
+                        S_IRWXO  00007 others have read, write, and execute permission
+
+                        S_IROTH  00004 others have read permission
+                            
+                        S_IWOTH  00002 others have write permission
+
+                        S_IXOTH  00001 others have execute permission
+                    比如： S_IRUSR|S_IRGRP|S_IROTH  --> r--r--r--
+                b.用八进制表示权限  
+                    0666 --> 110110110 --->rw-rw-rw-
+        返回值： 
+            成功打开返回一个整数(>2) --->文件描述符  
+            因为每一个程序操作系统会为它自动打开三个文件：
+                标准输入文件   文件描述符 STDIN_FILENO   0
+                标准输出文件             STDOUT_FILENO  1
+                标准出错文件             STDERR_FILENO  2 
+            失败返回-1并置位errno   
+        比如： 
+            #include <stdio.h>
+            #include <errno.h>
+
+            int main(int argc,char *argv[])
+            {
+                int fd = open(argv[1],O_RDWR);
+                if(-1 == fd)
+                {
+                    printf("open %s error!!\n",argv[1]);
+                    printf("errno:%d\n",errno);
+                    return -1;
+                }
+                printf("OK!!!\n");
+                printf("fd:%d\n",fd);
+
+                return 0;
+            }
+        在以上的例子中，如果一旦open出错，返回-1，但是其实我们并不知道出了什么错，需要用到errno。可以man errno
+        #include <errno.h>    它将保存最后一次出错的错误码 
+        printf("errno:%d\n",errno);//可以识别到并且打印出错误吗
+        但是直到错误码还是不知道出错原因，就可以用perror.
+        perror("open failed");
+         
+    3.2 read  
+       NAME
+       read - read from a file descriptor
+        从一个文件描述符内读取数据
+    SYNOPSIS
+        #include <unistd.h>
+
+    ssize_t read(int fd, void *buf, size_t count);
+        @fd：要读取的那个文件的文件描述符  -->open函数的返回值 
+        @buf：指向一段内存的首地址，这段内存用来存放你读取到的数据 -->数组   char buf[1024]={0};
+        @count:表示你想要读取多少个字节的数据 
+    返回值： 
+        成功的返回你实际上读取到字节数  
+            >0  表示实际读到的字节数(<=count)
+            ==0  表示文件内容读完了或者为空  
+        失败返回-1，同时errno被设置  
+
+    练习： 从一个文件2.txt:jintianzhousan!!! 请你将这段话读取出来并打印 
+
+    3.3 write 
+      NAME
+       write - write to a file descriptor
+        往一个文件描述符中写入数据
+    SYNOPSIS
+       #include <unistd.h>
+
+    ssize_t write(int fd, const void *buf, size_t count);  
+        @fd:文件描述符  
+        @buf:指向一段内存，保存着你即将写入的数据 
+        @count：你想要写入多少个字节的数据 
+    返回值： 
+        成功返回你实际上写入数据的字节数
+        失败返回-1，同时errno被设置 
+
+问题： 
+    现在有一个文本4.txt:aaabbbccc 
+    现在打开这个文件之后读取3个字节的数据:aaa 
+    接着写入3个字节的数据:"111" 
+    请问这个文本里面的内容最后为：
+        aaa111ccc
+    结论：linux下文件都有有个光标属性，每次一打开文件，光标默认在文件开头，每次读写成功之后，光标也会跟着往后移动。-->"文件偏移量"
+
+    3.4 lseek 
+    NAME
+       lseek - reposition read/write file offset
+         移动光标
+    SYNOPSIS
+        #include <sys/types.h>
+        #include <unistd.h>
+
+     off_t lseek(int fd, off_t offset, int whence);
+        @fd：文件描述符 
+        @offset：偏移量 
+            >0 往后偏移 
+            =0 不偏移 
+            <0 往前偏移 
+        @whence：光标的初始定位位置 
+            SEEK_SET：基于文件开头位置 
+            SEEK_END: 基于文件末尾位置 
+            SEEK_CUR：基于文件当前位置  
+    比如： 
+        lseek(fd,-5,SEEK_END);//新光标的位置定位在文件末尾再往前移动5个字节 
+    返回值： 
+        成功的话，返回新光标到文件开头的字节数  -->求一个未知文件的大小  
+        失败返回-1，同时errno被设置 
+
+    3.5 关闭文件 close  
+       NAME
+       close - close a file descriptor
+        关闭一个文件描述符
+    SYNOPSIS
+        #include <unistd.h>
+
+        int close(int fd);
+ 
+ 作业： 
+    运用今天学的系统IO的接口函数完成对一个图片文件的拷贝 
+        1.bmp         3.bmp(空)
+    思路:循环读写  
+        
+    
+  
+
+
